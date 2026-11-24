@@ -83,6 +83,19 @@ create table if not exists order_items (
   created_at timestamp with time zone default now()
 );
 
+-- Admin push subscriptions table (Web Push Notifications)
+create table if not exists admin_push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  admin_user_id uuid not null references auth.users(id) on delete cascade,
+  endpoint text not null,
+  p256dh text not null,
+  auth text not null,
+  user_agent text,
+  created_at timestamptz default now(),
+  last_used_at timestamptz,
+  unique (admin_user_id, endpoint)
+);
+
 -- ============================================
 -- ENABLE RLS (idempotent)
 -- ============================================
@@ -92,6 +105,7 @@ alter table products enable row level security;
 alter table product_variants enable row level security;
 alter table orders enable row level security;
 alter table order_items enable row level security;
+alter table admin_push_subscriptions enable row level security;
 
 -- ============================================
 -- ADMIN ROLE HELPER FUNCTION (created BEFORE policies)
@@ -166,6 +180,95 @@ create policy "admin read all order_items" on order_items
 create policy "admin manage order_items" on order_items
   for all using (public.is_admin());
 
+-- ADMIN PUSH SUBSCRIPTIONS
+create policy "admin manage own subscriptions" on admin_push_subscriptions
+  for all using (auth.uid() = admin_user_id)
+  with check (auth.uid() = admin_user_id);
+
+create policy "service role read all subscriptions" on admin_push_subscriptions
+  for select using (auth.role() = 'service_role');
+
+-- ============================================
+-- ADMIN ROLE HELPER FUNCTION (created BEFORE policies)
+-- Uses auth.jwt() -> app_metadata (trusted, server-controlled JWT claim)
+-- ============================================
+
+create or replace function public.is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public, auth
+as $$
+  select (auth.jwt() -> 'app_metadata' ->> 'role') = 'admin';
+$$;
+
+grant execute on function public.is_admin() to authenticated;
+
+-- ============================================
+-- RLS POLICIES (created AFTER is_admin() function)
+-- ============================================
+
+-- Drop existing policies to make idempotent
+drop policy if exists "public read categories" on categories;
+drop policy if exists "admin manage categories" on categories;
+drop policy if exists "public read products" on products;
+drop policy if exists "admin manage products" on products;
+drop policy if exists "public read variants" on product_variants;
+drop policy if exists "admin manage variants" on product_variants;
+drop policy if exists "admin read all orders" on orders;
+drop policy if exists "admin manage orders" on orders;
+drop policy if exists "admin read all order_items" on order_items;
+drop policy if exists "admin manage order_items" on order_items;
+
+-- CATEGORIES
+create policy "public read categories" on categories
+  for select using (true);
+
+create policy "admin manage categories" on categories
+  for all using (public.is_admin());
+
+-- PRODUCTS
+create policy "public read products" on products
+  for select using (is_active = true);
+
+create policy "admin manage products" on products
+  for all using (public.is_admin());
+
+-- PRODUCT VARIANTS
+create policy "public read variants" on product_variants
+  for select using (
+    exists (
+      select 1 from products
+      where products.id = product_variants.product_id
+      and products.is_active = true
+    )
+  );
+
+create policy "admin manage variants" on product_variants
+  for all using (public.is_admin());
+
+-- ORDERS
+create policy "admin read all orders" on orders
+  for select using (public.is_admin());
+
+create policy "admin manage orders" on orders
+  for all using (public.is_admin());
+
+-- ORDER ITEMS
+create policy "admin read all order_items" on order_items
+  for select using (public.is_admin());
+
+create policy "admin manage order_items" on order_items
+  for all using (public.is_admin());
+
+-- ADMIN PUSH SUBSCRIPTIONS
+create policy "admin manage own subscriptions" on admin_push_subscriptions
+  for all using (auth.uid() = admin_user_id)
+  with check (auth.uid() = admin_user_id);
+
+create policy "service role read all subscriptions" on admin_push_subscriptions
+  for select using (auth.role() = 'service_role');
+
 -- ============================================
 -- TRIGGERS FOR UPDATED_AT
 -- ============================================
@@ -216,3 +319,4 @@ create index if not exists idx_product_variants_product_id on product_variants(p
 create index if not exists idx_orders_status on orders(status);
 create index if not exists idx_order_items_order_id on order_items(order_id);
 create index if not exists idx_order_items_product_id on order_items(product_id);
+create index if not exists idx_admin_push_subscriptions_user on admin_push_subscriptions(admin_user_id);

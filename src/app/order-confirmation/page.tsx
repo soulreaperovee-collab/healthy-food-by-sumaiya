@@ -61,11 +61,11 @@ export default function OrderConfirmation() {
           <ol className="space-y-3 text-sm text-muted-foreground">
             <li className="flex items-start gap-2">
               <span className="w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold flex-shrink-0">1</span>
-              <span>Our team will review your order and confirm via phone within 24 hours.</span>
+              <span>Your order has been received and is pending confirmation.</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold flex-shrink-0">2</span>
-              <span>Delivery will be scheduled based on your location.</span>
+              <span>Admin will confirm the delivery charge via phone within 24 hours.</span>
             </li>
             <li className="flex items-start gap-2">
               <span className="w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-bold flex-shrink-0">3</span>

@@ -1,5 +1,6 @@
 import { supabaseAdmin } from './supabase-server';
 import { formatPrice } from './utils';
+import { notifyAdminsOfNewOrder } from './order-notifications';
 
 export interface CheckoutItem {
   product_id: string;
@@ -47,10 +48,8 @@ export async function submitOrder(input: CheckoutInput): Promise<OrderResult> {
 
   const validatedItems = productValidation.items!;
 
-  // Calculate totals server-side
+  // Calculate subtotal server-side (delivery fee NULL until admin confirms)
   const subtotal = validatedItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const deliveryFee = subtotal >= FREE_DELIVERY_THRESHOLD ? 0 : DELIVERY_FEE;
-  const total = subtotal + deliveryFee;
 
   // Generate order reference
   const orderReference = generateOrderReference();
@@ -67,10 +66,10 @@ export async function submitOrder(input: CheckoutInput): Promise<OrderResult> {
       delivery_instructions: input.delivery_instructions?.trim() || null,
       payment_method: input.payment_method,
       subtotal,
-      delivery_fee: deliveryFee,
+      delivery_fee: null, // NULL until admin confirms
       discount: 0,
-      total,
-      status: 'pending',
+      total: null, // NULL until delivery confirmed
+      status: 'pending_confirmation',
     })
     .select('id')
     .single();
@@ -102,6 +101,23 @@ export async function submitOrder(input: CheckoutInput): Promise<OrderResult> {
     await supabaseAdmin.from('orders').delete().eq('id', order.id);
     return { success: false, error: 'Failed to create order items' };
   }
+
+  // Fire-and-forget notification with bounded execution
+  // Use Promise.race to bound execution time
+  const notificationPromise = Promise.race([
+    notifyAdminsOfNewOrder({
+      orderId: order.id,
+      orderReference,
+      subtotal,
+      paymentMethod: input.payment_method,
+    }),
+    new Promise<void>((_, reject) =>
+      setTimeout(() => reject(new Error('Notification timeout')), 5000)
+    ),
+  ]).catch((error) => {
+    // Log failure but never invalidate the order
+    console.error('Admin notification failed:', error);
+  });
 
   return {
     success: true,
